@@ -1,0 +1,396 @@
+public abstract class ATransito extends AbstractBinaryProblem 
+{
+	
+	private int m;//Número de pasajeros
+	private int n;// Número de recursos
+	private int p;//Nodo de choque
+	private int cat;//Categoría de gravedad del paciente : 1-Menor, 2-Intermedia, 3-Severa
+	private int k=10;// Índice de establecimiento de salud
+	private int[] threshold = new int [k*6];//
+	private int[] bitsPerVariable=new int[k*6] ;
+	//private int[][]P_recursos = new int [n][k] ;// Parámetros de los recursos
+	private int[] costos_R= new int[6*k];// Costos de operación de los recursos
+	private int[] ultimo_uso_R= new int[6*k];// Ultimo uso de los recursos
+	//private int[] P_paciente = new int [5] ; //Parámetros de los pacientes
+	private double[] w= new double[3] ;// Pesos de los recursos escogidos
+	private double[][] Distancias= new double[10][k] ;// Pesos de los recursos escogidos
+	private boolean [] V_solucion = new boolean[6];//Solución inicial
+	//private ArrayList [] Poblacion = new ArrayList[k];//Población de soluciones iniciales (Triviales)
+	//private ArrayList[] Recursos = new ArrayList[6*k];//Conjunto de recursos disponibles por establecimiento
+	double inicio= System.currentTimeMillis();
+	
+	// Documento de referencia: https://www.researchgate.net/publication/230799204_A_Novel_Approach_for_Traffic_Accidents_Sanitary_Resource_Allocation_Based_on_Multi-Objective_Genetic_Algorithms
+	protected int getBitsPerVariable(int index)
+	  {
+	  	if ((index <0) || (index >= this.getNumberOfVariables())) 
+	  	{
+	  		throw new JMetalException("Index value is incorrect: " + index) ;
+	  	}
+	  	return bitsPerVariable[index] ;
+	  }
+	/* Constructor*/
+	
+	  public ATransito() 
+	  {
+	    setNumberOfVariables(6*k);
+	    setNumberOfObjectives(4);
+	    setNumberOfConstraints(0);
+	    setName("ATransito");
+	       
+	  }
+	  
+	  /** Evaluate() method */
+	  public void evaluate(BinarySolution solution) 
+	  {
+		 
+	    double[] f = new double[solution.getNumberOfObjectives()];
+	    
+	    //1.Assistance quality penalty (pág 7-8)////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	    for (int i=1;i<m;i++)
+	    {
+	    	for (int j=0; j<n;j++)
+	    	{
+	    		f[0]+=(w[i]*(evalAQ(solution,cat,n)[i]))+(w[j]*(evalSQ(solution,cat,n)[j]));
+	    	}
+	    }
+	    //2. Cost (pág 8)////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	    for(int a=1;a<k;a++)
+	    {
+		    for (int i=1;i<(6*k);i++)
+		    {
+		     	f[1]+=(costos_R[i]+Distancias[p][a])*(solution.getVariableValue(i));
+		    }
+	    }
+	    //3. Resource overuse penalty (pág8)///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	    
+	    for (int i=1;i<(k*6);i++)
+	    {
+	     	f[2]+= 2/(System.currentTimeMillis()-(ultimo_uso_R[i])+2);
+	    }
+	    
+	    //4. Emergency threshold penalty (pág8)///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	    
+	    for(int i=1;i<k;i++)
+	    {
+		    for (int j=3;j<5;j++)
+		    {
+		    	for (int l=5;l<7;l++)
+			    {
+		     	f[3]+= 0.4*((threshold[((i-1)*6)+j]-(solution.getVariableValue(((i-1)*6)+j))/(threshold[((i-1)*6)+j]))+0.6*(((threshold[((i-1)*6)+l]-(solution.getVariableValue(((i-1)*6)+l)))/(threshold[((i-1)*6)+l]))));
+			    }
+		    }
+		    	
+	    }
+	    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	    solution.setObjective(0, f[0]);
+	    solution.setObjective(1, f[1]);
+	    solution.setObjective(2, f[2]);
+	    solution.setObjective(3, f[3]);
+	  }
+	  /**
+	   * Retorna el valor de la penalización por calidad de asistencia
+	   *
+	   * @param solution The solution.
+	   *//////////////////////////////////////////////////////////////////////////CORREGIR///////////////////////////////////////////////
+	  public double[] evalAQ(BinarySolution solution, int cat, int k)
+	  {
+		   double [] AQ= new double[3];
+		   cat = this.cat;
+		   k = this.k;
+		   m = this.m;
+		      
+		  if(cat==1&&m<=3)
+				  {
+			  		if(solution.getVariableValue(((k-1)*6)+1) == 0 && solution.getVariableValue(((k-1)*6)+2) == 0) //Si no se ha evaluado una solución inicial para ambuslancias NA
+			  	  	{
+		  	  		  	  AQ[1] = 5*3600;//5 horas de penalización
+			  	  	}
+			  
+			  		else if(solution.getVariableValue(((k-1)*6)+1) == 0 || solution.getVariableValue(((k-1)*6)+2) == 0) //Si no se ha evaluado una solución acorde para ambuslancias NA
+			  	  	{
+			  	  		  AQ[1] = ((System.currentTimeMillis()-inicio)*2);
+			  	  	}
+			  		
+			  		
+			  	  if(solution.getVariableValue(((k-1)*6)+3) == 0 && solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial para ambulancias BLS
+			  	  	{
+			  	  		  AQ[2] = 5*3600;//5 horas de penalización
+			  	  	}
+			  	  	else if(solution.getVariableValue(((k-1)*6)+3) == 0 || solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución acorde para ambuslancias BLS
+			  	  	{
+			  	  		  AQ[2] =((System.currentTimeMillis()-inicio)*2);
+			  	  	}
+				  }
+		  if(cat==1&&m>3)
+		  {
+	  	  	if(solution.getVariableValue(((k-1)*6)+1) == 0 && solution.getVariableValue(((k-1)*6)+2) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  AQ[1] = 5*3600;//5 horas de penalización
+	  	  	}
+	  	  	else if(solution.getVariableValue(((k-1)*6)+1) == 0 || solution.getVariableValue(((k-1)*6)+2) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  AQ[1] = ((System.currentTimeMillis()-inicio)*2);
+	  	  	}
+	  	  		  	  	
+	  	  	if(solution.getVariableValue(((k-1)*6)+3) == 0 && solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial acorde para ambulancias BLS
+	  	  	{
+	  	  		  AQ[2] = 5*3600;//5 horas de penalización
+	  	  	}
+	  	  	else if(solution.getVariableValue(((k-1)*6)+3) == 0 || solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  AQ[2] = ((System.currentTimeMillis()-inicio)*2);
+	  	  	}
+		  }
+		  
+		  if(cat==2&&m<=3)
+		  {
+		  		if(solution.getVariableValue(((k-1)*6)+3) == 0 && solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial para ambuslancias NA
+		  	  	{
+	  	  		  	  AQ[2] = 5*3600;//5 horas de penalización
+		  	  	}
+		  
+		  		else if(solution.getVariableValue(((k-1)*6)+3) == 0 || solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución acorde para ambuslancias NA
+		  	  	{
+		  	  		  AQ[2] = ((System.currentTimeMillis()-inicio)*2);
+		  	  	}
+		  		
+		  		
+		  	  if(solution.getVariableValue(((k-1)*6)+5) == 0 && solution.getVariableValue(((k-1)*6)+6) == 0) //Si no se ha evaluado una solución inicial para ambulancias BLS
+		  	  	{
+		  	  		  AQ[3] = 5*3600;//5 horas de penalización
+		  	  	}
+		  	  	else if(solution.getVariableValue(((k-1)*6)+5) == 0 || solution.getVariableValue(((k-1)*6)+6) == 0) //Si no se ha evaluado una solución acorde para ambuslancias BLS
+		  	  	{
+		  	  		  AQ[3] =((System.currentTimeMillis()-inicio)*2);
+		  	  	}
+		  }
+		  
+		  if(cat>=2&&m>3)
+		  {
+	  	  	if(solution.getVariableValue(((k-1)*6)+3) == 0 && solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  AQ[2] = 5*3600;//5 horas de penalización
+	  	  	}
+	  	  	else if(solution.getVariableValue(((k-1)*6)+3) == 0 || solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  AQ[2] = ((System.currentTimeMillis()-inicio)*2);
+	  	  	}
+	  	  		  	  	
+	  	  	if(solution.getVariableValue(((k-1)*6)+5) == 0 && solution.getVariableValue(((k-1)*6)+6) == 0) //Si no se ha evaluado una solución inicial acorde para ambulancias BLS
+	  	  	{
+	  	  		  AQ[3] = 5*3600;//5 horas de penalización
+	  	  	}
+	  	  	else if(solution.getVariableValue(((k-1)*6)+5) == 0 || solution.getVariableValue(((k-1)*6)+6) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  AQ[3] = ((System.currentTimeMillis()-inicio)*2);
+	  	  	}
+		  }
+		  else
+		  {
+			  AQ[1]=Math.pow((System.currentTimeMillis()-inicio), 2);
+			  AQ[2]=Math.pow((System.currentTimeMillis()-inicio), 2);
+			  AQ[3]=Math.pow((System.currentTimeMillis()-inicio), 2);
+		  }
+
+	    return AQ;
+	  }
+	  
+	  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	  public Object Asign_Recursos(int cat, int m, boolean[] V_solucion, int k)
+	  {
+		k= this.k;  
+		m = this.m;
+		cat = this.cat;
+		V_solucion = this.V_solucion;
+		
+		if(cat==1&&m<=3) // Configuración para accidentes menores
+		{
+			
+			if(V_solucion[((k-1)*6)+1]== false) //Asignación de ambulancias NA posición 1
+			{
+				V_solucion[((k-1)*6)+1]= true;
+			}
+			else if (V_solucion[((k-1)*6)+2]== false)//Asignación de ambulancias NA posición 2
+			{
+				V_solucion[((k-1)*6)+2]= true;
+			}
+			else{}
+			
+			if(V_solucion[((k-1)*6)+3]== false) //Asignación de ambulancias BLS posición 1
+			{
+				V_solucion[((k-1)*6)+3]= true;
+			}
+			else if (V_solucion[((k-1)*6)+4]== false)//Asignación de ambulancias BLS posición 2
+			{
+				V_solucion[((k-1)*6)+4]= true;
+			}
+			else
+			{
+				V_solucion[((k-1)*6)+1]= true;
+				V_solucion[((k-1)*6)+2]= true;
+				V_solucion[((k-1)*6)+3]= true;
+				V_solucion[((k-1)*6)+4]= true;
+			}
+		}
+		if(cat==2&&m<=3) // Configuración para accidentes intermedios
+		{
+			
+			if(V_solucion[((k-1)*6)+3]== false) //Asignación de ambulancias BLS posición 1
+			{
+				V_solucion[((k-1)*6)+3]= true;
+			}
+			else if (V_solucion[((k-1)*6)+4]== false)//Asignación de ambulancias BLS posición 2
+			{
+				V_solucion[((k-1)*6)+4]= true;
+			}
+			else{}
+			
+			if(V_solucion[((k-1)*6)+5]== false) //Asignación de ambulancias ALS posición 1
+			{
+				V_solucion[((k-1)*6)+5]= true;
+			}
+			else if (V_solucion[((k-1)*6)+6]== false)//Asignación de ambulancias ALS posición 2
+			{
+				V_solucion[((k-1)*6)+6]= true;
+			}
+			else
+			{
+				V_solucion[((k-1)*6)+3]= true;
+				V_solucion[((k-1)*6)+4]= true;
+				V_solucion[((k-1)*6)+5]= true;
+				V_solucion[((k-1)*6)+6]= true;
+			}
+			if(cat==3&&m<=3) // Configuración para accidentes intermedios
+			{
+				
+								
+				if(V_solucion[((k-1)*6)+5]== false) //Asignación de ambulancias ALS posición 1
+				{
+					V_solucion[((k-1)*6)+5]= true;
+				}
+				else if (V_solucion[((k-1)*6)+6]== false)//Asignación de ambulancias ALS posición 2
+				{
+					V_solucion[((k-1)*6)+6]= true;
+				}
+				else
+				{
+					V_solucion[((k-1)*6)+5]= true;
+					V_solucion[((k-1)*6)+6]= true;
+				}
+			}
+		}
+		
+		return V_solucion;
+	  }
+	  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	  /**
+	   * Retorna el valor de la penalización por calidad de soporte
+	   *
+	   * @param solution The solution.
+	   *////////////////////////////////////////////////////////////////////////////////CORREGIR/////////////////////////////////////////
+	  public double[] evalSQ(BinarySolution solution, int cat, int k)
+	  {
+		   double [] SQ= new double[3];
+		   cat = this.cat;
+		   k = this.k;
+		   m = this.m;
+		      
+		  if(cat==1&&m<=3)
+				  {
+			  		if(solution.getVariableValue(((k-1)*6)+1) == 0 && solution.getVariableValue(((k-1)*6)+2) == 0) //Si no se ha evaluado una solución inicial para ambuslancias NA
+			  	  	{
+		  	  		  	  SQ[1] = 5*3600;//5 horas de penalización
+			  	  	}
+			  
+			  		else if(solution.getVariableValue(((k-1)*6)+1) == 0 || solution.getVariableValue(((k-1)*6)+2) == 0) //Si no se ha evaluado una solución acorde para ambuslancias NA
+			  	  	{
+			  	  		  SQ[1] = ((System.currentTimeMillis()-inicio)*4);
+			  	  	}
+			  		
+			  		
+			  	  if(solution.getVariableValue(((k-1)*6)+3) == 0 && solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial para ambulancias BLS
+			  	  	{
+			  	  		  SQ[2] = 5*3600;//5 horas de penalización
+			  	  	}
+			  	  	else if(solution.getVariableValue(((k-1)*6)+3) == 0 || solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución acorde para ambuslancias BLS
+			  	  	{
+			  	  		  SQ[2] =((System.currentTimeMillis()-inicio)*4);
+			  	  	}
+				  }
+		  if(cat==1&&m>3)
+		  {
+	  	  	if(solution.getVariableValue(((k-1)*6)+1) == 0 && solution.getVariableValue(((k-1)*6)+2) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  SQ[1] = 5*3600;//5 horas de penalización
+	  	  	}
+	  	  	else if(solution.getVariableValue(((k-1)*6)+1) == 0 || solution.getVariableValue(((k-1)*6)+2) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  SQ[1] = ((System.currentTimeMillis()-inicio)*4);
+	  	  	}
+	  	  		  	  	
+	  	  	if(solution.getVariableValue(((k-1)*6)+3) == 0 && solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial acorde para ambulancias BLS
+	  	  	{
+	  	  		  SQ[2] = 5*3600;//5 horas de penalización
+	  	  	}
+	  	  	else if(solution.getVariableValue(((k-1)*6)+3) == 0 || solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  SQ[2] = ((System.currentTimeMillis()-inicio)*4);
+	  	  	}
+		  }
+		  
+		  if(cat==2&&m<=3)
+		  {
+		  		if(solution.getVariableValue(((k-1)*6)+3) == 0 && solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial para ambuslancias NA
+		  	  	{
+	  	  		  	  SQ[2] = 5*3600;//5 horas de penalización
+		  	  	}
+		  
+		  		else if(solution.getVariableValue(((k-1)*6)+3) == 0 || solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución acorde para ambuslancias NA
+		  	  	{
+		  	  		  SQ[2] = ((System.currentTimeMillis()-inicio)*4);
+		  	  	}
+		  		
+		  		
+		  	  if(solution.getVariableValue(((k-1)*6)+5) == 0 && solution.getVariableValue(((k-1)*6)+6) == 0) //Si no se ha evaluado una solución inicial para ambulancias BLS
+		  	  	{
+		  	  		  SQ[3] = 5*3600;//5 horas de penalización
+		  	  	}
+		  	  	else if(solution.getVariableValue(((k-1)*6)+5) == 0 || solution.getVariableValue(((k-1)*6)+6) == 0) //Si no se ha evaluado una solución acorde para ambuslancias BLS
+		  	  	{
+		  	  		  SQ[3] =((System.currentTimeMillis()-inicio)*4);
+		  	  	}
+		  }
+		  
+		  if(cat>=2&&m>3)
+		  {
+	  	  	if(solution.getVariableValue(((k-1)*6)+3) == 0 && solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  SQ[2] = 5*3600;//5 horas de penalización
+	  	  	}
+	  	  	else if(solution.getVariableValue(((k-1)*6)+3) == 0 || solution.getVariableValue(((k-1)*6)+4) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  SQ[2] = ((System.currentTimeMillis()-inicio)*4);
+	  	  	}
+	  	  		  	  	
+	  	  	if(solution.getVariableValue(((k-1)*6)+5) == 0 && solution.getVariableValue(((k-1)*6)+6) == 0) //Si no se ha evaluado una solución inicial acorde para ambulancias BLS
+	  	  	{
+	  	  		  SQ[3] = 5*3600;//5 horas de penalización
+	  	  	}
+	  	  	else if(solution.getVariableValue(((k-1)*6)+5) == 0 || solution.getVariableValue(((k-1)*6)+6) == 0) //Si no se ha evaluado una solución inicial acorde para ambuslancias NA
+	  	  	{
+	  	  		  SQ[3] = ((System.currentTimeMillis()-inicio)*4);
+	  	  	}
+		  }
+		  else
+		  {
+			  SQ[1]=Math.pow((System.currentTimeMillis()-inicio), 2);
+			  SQ[2]=Math.pow((System.currentTimeMillis()-inicio), 2);
+			  SQ[3]=Math.pow((System.currentTimeMillis()-inicio), 2);
+		  }
+
+	    return SQ;
+	  }
+	  /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	  
+	}
